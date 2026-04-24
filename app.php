@@ -61,7 +61,7 @@ function escape($text)
 function api_get_json($url, $headers = [], $cookieFile = null)
 {
     if (!function_exists("curl_init")) {
-        return null;
+        return stream_get_json($url, $headers);
     }
 
     $ch = curl_init();
@@ -85,15 +85,69 @@ function api_get_json($url, $headers = [], $cookieFile = null)
     curl_close($ch);
 
     if ($error || $status < 200 || $status >= 300) {
-        return null;
+        return stream_get_json($url, $headers);
     }
 
     $json = json_decode($response, true);
     if (!is_array($json)) {
-        return null;
+        return stream_get_json($url, $headers);
     }
 
     return $json;
+}
+
+function stream_get_json($url, $headers = [])
+{
+    $requestHeaders = $headers;
+    $hasUserAgent = false;
+
+    foreach ($requestHeaders as $header) {
+        if (stripos($header, "User-Agent:") === 0) {
+            $hasUserAgent = true;
+            break;
+        }
+    }
+
+    if (!$hasUserAgent) {
+        $requestHeaders[] = "User-Agent: Mozilla/5.0";
+    }
+
+    $requestHeaders[] = "Connection: close";
+
+    $context = stream_context_create([
+        "http" => [
+            "method" => "GET",
+            "header" => implode("\r\n", $requestHeaders) . "\r\n",
+            "timeout" => 18,
+            "ignore_errors" => true
+        ],
+        "ssl" => [
+            "verify_peer" => false,
+            "verify_peer_name" => false
+        ]
+    ]);
+
+    $response = @file_get_contents($url, false, $context);
+    if ($response === false) {
+        return null;
+    }
+
+    if (!isset($http_response_header) || !is_array($http_response_header) || count($http_response_header) === 0) {
+        return null;
+    }
+
+    $statusLine = $http_response_header[0];
+    if (!preg_match('/\s(\d{3})\s/', $statusLine, $matches)) {
+        return null;
+    }
+
+    $status = (int) $matches[1];
+    if ($status < 200 || $status >= 300) {
+        return null;
+    }
+
+    $json = json_decode($response, true);
+    return is_array($json) ? $json : null;
 }
 
 function upstox_api_get($url)
@@ -429,7 +483,12 @@ function nse_get_equity_quote($symbol)
 
     $main = nse_api_get("/api/quote-equity", ["symbol" => $cleanSymbol], "https://www.nseindia.com/get-quotes/equity?symbol=" . urlencode($cleanSymbol));
     if (!$main) {
-        return nse_get_equity_quote_from_snapshots($cleanSymbol);
+        $snapshotQuote = nse_get_equity_quote_from_snapshots($cleanSymbol);
+        if ($snapshotQuote) {
+            return $snapshotQuote;
+        }
+
+        return yahoo_get_equity_quote($cleanSymbol);
     }
 
     $trade = nse_api_get("/api/quote-equity", ["symbol" => $cleanSymbol, "section" => "trade_info"], "https://www.nseindia.com/get-quotes/equity?symbol=" . urlencode($cleanSymbol));
@@ -461,6 +520,55 @@ function nse_get_equity_quote($symbol)
         ],
         "volume" => $volume,
         "change_percent" => isset($main["priceInfo"]["pChange"]) ? (float) $main["priceInfo"]["pChange"] : 0
+    ];
+}
+
+function yahoo_get_equity_quote($symbol)
+{
+    $cleanSymbol = normalize_symbol($symbol);
+    if ($cleanSymbol === "") {
+        return null;
+    }
+
+    $url = "https://query1.finance.yahoo.com/v8/finance/chart/" . rawurlencode($cleanSymbol . ".NS") . "?range=1d&interval=1m";
+    $json = api_get_json($url);
+    if (
+        !$json ||
+        !isset($json["chart"]["result"][0]["meta"]) ||
+        !is_array($json["chart"]["result"][0]["meta"])
+    ) {
+        return null;
+    }
+
+    $meta = $json["chart"]["result"][0]["meta"];
+    $lastPrice = isset($meta["regularMarketPrice"]) ? (float) $meta["regularMarketPrice"] : 0;
+    if ($lastPrice <= 0) {
+        return null;
+    }
+
+    $close = isset($meta["previousClose"]) ? (float) $meta["previousClose"] : 0;
+    $changePercent = 0;
+    if ($close > 0) {
+        $changePercent = (($lastPrice - $close) / $close) * 100;
+    }
+
+    return [
+        "symbol" => $cleanSymbol,
+        "name" => isset($meta["symbol"]) ? strtoupper(str_replace(".NS", "", $meta["symbol"])) : $cleanSymbol,
+        "exchange" => "NSE",
+        "last_price" => $lastPrice,
+        "ohlc" => [
+            "open" => isset($meta["regularMarketOpen"]) ? (float) $meta["regularMarketOpen"] : 0,
+            "high" => isset($meta["regularMarketDayHigh"]) ? (float) $meta["regularMarketDayHigh"] : 0,
+            "low" => isset($meta["regularMarketDayLow"]) ? (float) $meta["regularMarketDayLow"] : 0,
+            "close" => $close
+        ],
+        "depth" => [
+            "buy" => [["price" => 0]],
+            "sell" => [["price" => 0]]
+        ],
+        "volume" => isset($meta["regularMarketVolume"]) ? (float) $meta["regularMarketVolume"] : 0,
+        "change_percent" => $changePercent
     ];
 }
 
