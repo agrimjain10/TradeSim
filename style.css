@@ -3,7 +3,7 @@
 :root {
     --bg: #f5f2ea;
     --bg-accent: #ece7da;
-    --surface: rgba(255, 255, 255, 0.82);
+    --surface: #fdfbf7;
     --surface-strong: #ffffff;
     --surface-soft: #fbf8f1;
     --line: rgba(92, 77, 59, 0.11);
@@ -38,8 +38,8 @@ html {
 body {
     font-family: "Instrument Sans", sans-serif;
     background:
-        radial-gradient(circle at top left, rgba(211, 236, 224, 0.88), transparent 28%),
-        radial-gradient(circle at top right, rgba(248, 223, 192, 0.7), transparent 24%),
+        radial-gradient(circle at top left, rgba(211, 236, 224, 0.45), transparent 26%),
+        radial-gradient(circle at top right, rgba(248, 223, 192, 0.38), transparent 22%),
         linear-gradient(180deg, #f9f6ef 0%, #f4f0e7 100%);
     color: var(--text);
     line-height: 1.6;
@@ -60,8 +60,8 @@ a {
     inset: 0;
     pointer-events: none;
     background:
-        radial-gradient(circle at 12% 8%, rgba(226, 244, 234, 0.95), transparent 20%),
-        radial-gradient(circle at 88% 10%, rgba(255, 237, 215, 0.8), transparent 18%);
+        radial-gradient(circle at 12% 8%, rgba(226, 244, 234, 0.4), transparent 18%),
+        radial-gradient(circle at 88% 10%, rgba(255, 237, 215, 0.28), transparent 16%);
 }
 
 .header-shell {
@@ -69,7 +69,6 @@ a {
     top: 0;
     z-index: 40;
     padding: 1.25rem 1.5rem 0;
-    backdrop-filter: blur(14px);
 }
 
 .header-bar,
@@ -89,6 +88,11 @@ a {
 .header-bar,
 .header-subbar {
     border-radius: var(--radius-lg);
+}
+
+.hero-stat-card {
+    background: #fffdfa;
+    border: 1px solid rgba(92, 77, 59, 0.1);
 }
 
 .header-bar {
@@ -244,23 +248,30 @@ button,
 .top-search-form button,
 button,
 .primary-link-button {
-    background: var(--accent);
+    background: #45362b;
     color: #fffdf8;
     padding: 0.92rem 1.2rem;
-    box-shadow: 0 12px 22px rgba(22, 61, 51, 0.18);
+    box-shadow: 0 10px 18px rgba(69, 54, 43, 0.14);
 }
 
 .secondary-link-button,
 .sell-button {
-    background: rgba(255, 255, 255, 0.72);
+    background: #fffdfa;
     color: var(--text);
     border: 1px solid var(--line-strong);
     padding: 0.9rem 1.15rem;
 }
 
+.top-search-form button {
+    background: #584437;
+}
+
 .top-search-form button:hover,
 button:hover,
-.primary-link-button:hover,
+.primary-link-button:hover {
+    background: #3d3027;
+}
+
 .secondary-link-button:hover,
 .sell-button:hover {
     transform: translateY(-1px);
@@ -279,7 +290,7 @@ button:hover,
     gap: 0.8rem;
     padding: 0.75rem 0.9rem;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.78);
+    background: #fffdfa;
     border: 1px solid var(--line);
 }
 
@@ -360,7 +371,7 @@ button:hover,
     text-decoration: none;
     border-radius: 18px;
     padding: 0.8rem 0.95rem;
-    background: rgba(255, 255, 255, 0.72);
+    background: #fffdfa;
     border: 1px solid rgba(92, 77, 59, 0.1);
 }
 
@@ -404,15 +415,15 @@ button:hover,
 }
 
 .portfolio-hero {
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(248, 245, 237, 0.9));
+    background: linear-gradient(135deg, #fffdfa, #f8f5ed);
     border: 1px solid var(--line);
     box-shadow: var(--shadow-md);
 }
 
 .premium-hero {
     background:
-        linear-gradient(135deg, rgba(255, 255, 255, 0.88), rgba(247, 243, 234, 0.92)),
-        linear-gradient(120deg, rgba(211, 236, 224, 0.6), transparent 44%);
+        linear-gradient(135deg, #fffdfa, #f6f1e8),
+        linear-gradient(120deg, rgba(211, 236, 224, 0.22), transparent 44%);
 }
 
 .welcome-left h2,
@@ -462,8 +473,8 @@ button:hover,
 }
 
 .hero-stat-card {
-    background: rgba(255, 255, 255, 0.68);
-    border: 1px solid var(--line);
+    background: #fffdfa;
+    border: 1px solid rgba(92, 77, 59, 0.1);
 }
 
 .hero-stat-card strong,
@@ -504,8 +515,8 @@ button:hover,
 
 .mini-insight-list div {
     padding: 1rem 1.1rem;
-    background: rgba(255, 255, 255, 0.68);
-    border: 1px solid var(--line);
+    background: #fffdfa;
+    border: 1px solid rgba(92, 77, 59, 0.1);
     border-radius: var(--radius-md);
 }
 
@@ -680,7 +691,7 @@ button:hover,
 }
 
 .info-box {
-    background: rgba(255, 255, 255, 0.78);
+    background: #fffdfa;
 }
 
 .info-box strong {
@@ -739,7 +750,7 @@ input[type="number"] {
 }
 
 .elevated-table {
-    background: rgba(255, 255, 255, 0.78);
+    background: #fffdfa;
 }
 
 .stock-table {
@@ -793,7 +804,7 @@ input[type="number"] {
 .metric-pair div {
     padding: 0.95rem;
     border-radius: 16px;
-    background: rgba(248, 245, 237, 0.86);
+    background: #f8f4ec;
     border: 1px solid rgba(92, 77, 59, 0.08);
 }
 
@@ -824,8 +835,8 @@ input[type="number"] {
     padding: 2rem;
     border-radius: var(--radius-xl);
     background:
-        linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(247, 244, 236, 0.95)),
-        linear-gradient(135deg, rgba(211, 236, 224, 0.35), transparent 46%);
+        linear-gradient(135deg, #fffdfa, #f7f4ec),
+        linear-gradient(135deg, rgba(211, 236, 224, 0.2), transparent 46%);
 }
 
 .login-box-form {
@@ -896,7 +907,7 @@ input[type="number"] {
     top: calc(100% + 10px);
     left: 0;
     right: 92px;
-    background: rgba(255, 255, 255, 0.98);
+    background: #fffdfa;
     border: 1px solid rgba(92, 77, 59, 0.1);
     border-radius: 18px;
     box-shadow: var(--shadow-lg);
@@ -930,6 +941,22 @@ input[type="number"] {
 
 .suggest-item:hover {
     background: rgba(244, 239, 228, 0.65);
+}
+
+.stock-hero-panel {
+    background: linear-gradient(135deg, #fffdfa, #f7f2e8);
+}
+
+.stock-hero-meta {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.stock-chart-panel .chart-panel-box {
+    padding: 1rem;
+    background: #fffdfa;
 }
 
 .profit {
@@ -996,6 +1023,7 @@ input:-webkit-autofill:focus {
     .active-stock-grid,
     .summary-row,
     .detail-grid,
+    .stock-hero-meta,
     .portfolio-metrics-grid,
     .market-overview-grid,
     .metric-pair {
@@ -1030,5 +1058,200 @@ input:-webkit-autofill:focus {
 
     .table-box {
         overflow-x: auto;
+    }
+}
+
+.neutral {
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.fade-rise {
+    animation: fadeRise 0.55s ease both;
+}
+
+.price-pop strong,
+#quote-last {
+    transition: color 0.25s ease, transform 0.25s ease;
+}
+
+.chart-stage {
+    position: relative;
+    min-height: 340px;
+    overflow: hidden;
+}
+
+.chart-grid-glow {
+    position: absolute;
+    inset: 0;
+    background:
+        linear-gradient(rgba(118, 105, 91, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(118, 105, 91, 0.05) 1px, transparent 1px),
+        radial-gradient(circle at top, rgba(22, 61, 51, 0.11), transparent 48%);
+    background-size: 100% 56px, 74px 100%, 100% 100%;
+    pointer-events: none;
+}
+
+#stock-chart {
+    position: relative;
+    z-index: 1;
+}
+
+.stock-live-grid {
+    grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr);
+    align-items: stretch;
+}
+
+.quote-highlight-card {
+    position: relative;
+    overflow: hidden;
+}
+
+.quote-highlight-card::after {
+    content: "";
+    position: absolute;
+    inset: auto -40% -40% auto;
+    width: 180px;
+    height: 180px;
+    background: radial-gradient(circle, rgba(22, 61, 51, 0.12), transparent 65%);
+    pointer-events: none;
+}
+
+.signal-card {
+    border-radius: var(--radius-lg);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.signal-bullish {
+    border-color: rgba(18, 113, 91, 0.2);
+    box-shadow: 0 18px 32px rgba(18, 113, 91, 0.08);
+}
+
+.signal-bearish {
+    border-color: rgba(198, 92, 56, 0.22);
+    box-shadow: 0 18px 32px rgba(198, 92, 56, 0.08);
+}
+
+.signal-neutral {
+    border-color: rgba(118, 105, 91, 0.16);
+}
+
+.responsive-table td[data-label]::before {
+    display: none;
+}
+
+@keyframes fadeRise {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (max-width: 900px) {
+    .stock-live-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .chart-stage {
+        min-height: 280px;
+    }
+}
+
+@media (max-width: 720px) {
+    .header-shell {
+        padding: 1rem 0.9rem 0;
+    }
+
+    .page-body {
+        padding: 1rem 0.9rem 2rem;
+    }
+
+    .header-bar,
+    .header-subbar,
+    .hero-panel,
+    .section-box,
+    .portfolio-hero {
+        border-radius: 18px;
+    }
+
+    .top-search-form {
+        gap: 0.6rem;
+    }
+
+    .top-search-form input {
+        padding-right: 1rem;
+    }
+
+    .top-search-form button {
+        width: 100%;
+    }
+
+    .brand-block,
+    .header-actions {
+        width: 100%;
+    }
+
+    .balance-pill,
+    .profile-pill {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .responsive-table thead {
+        display: none;
+    }
+
+    .responsive-table,
+    .responsive-table tbody,
+    .responsive-table tr,
+    .responsive-table td {
+        display: block;
+        width: 100%;
+    }
+
+    .responsive-table {
+        min-width: 0;
+    }
+
+    .responsive-table tr {
+        padding: 0.9rem 0;
+        border-bottom: 1px solid rgba(92, 77, 59, 0.08);
+    }
+
+    .responsive-table tr:last-child {
+        border-bottom: none;
+    }
+
+    .responsive-table td {
+        border-bottom: none;
+        padding: 0.4rem 0;
+    }
+
+    .responsive-table td[data-label]::before {
+        content: attr(data-label);
+        display: block;
+        color: var(--muted-soft);
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        font-size: 0.68rem;
+        font-weight: 700;
+        margin-bottom: 0.2rem;
+    }
+
+    .responsive-table .stock-form {
+        gap: 0.55rem;
+    }
+
+    .responsive-table input[type="number"],
+    .responsive-table button {
+        width: 100%;
+    }
+
+    .table-box {
+        overflow: visible;
     }
 }
