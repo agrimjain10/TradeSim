@@ -19,7 +19,7 @@ $losingCount = 0;
 $largestHolding = null;
 while ($holdingResult && ($holdingRow = mysqli_fetch_assoc($holdingResult))) {
     $displayName = $holdingRow["display_name"] ? $holdingRow["display_name"] : $holdingRow["stock_name"];
-    $livePrice = resolve_holding_display_price($holdingRow["instrument_key"], $displayName, $holdingRow["buy_price"]);
+    $livePrice = resolve_holding_live_price($holdingRow["instrument_key"], $displayName, $holdingRow["buy_price"], true);
 
     $holdingRow["current_price"] = $livePrice;
     $holdingValue = (float) $holdingRow["quantity"] * $livePrice;

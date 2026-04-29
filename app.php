@@ -239,6 +239,38 @@ function normalize_symbol($value)
     return $symbol;
 }
 
+function resolve_equity_symbol($value)
+{
+    $symbol = normalize_symbol($value);
+    $companyKey = normalize_company_key($value);
+
+    $aliasMap = [
+        "ADANIPOWER" => "ADANIPOWER",
+        "BHARTIAIRTEL" => "BHARTIARTL",
+        "HDFCBANK" => "HDFCBANK",
+        "ICICIBANK" => "ICICIBANK",
+        "INFOSYS" => "INFY",
+        "INFY" => "INFY",
+        "ITC" => "ITC",
+        "RELIANCE" => "RELIANCE",
+        "SBI" => "SBIN",
+        "SBIN" => "SBIN",
+        "TATAMOTORS" => "TATAMOTORS",
+        "TCS" => "TCS",
+        "WIPRO" => "WIPRO"
+    ];
+
+    if (isset($aliasMap[$symbol])) {
+        return $aliasMap[$symbol];
+    }
+
+    if (isset($aliasMap[$companyKey])) {
+        return $aliasMap[$companyKey];
+    }
+
+    return $symbol;
+}
+
 function session_cache_get($key, $ttlSeconds)
 {
     if (!isset($_SESSION["app_cache"]) || !is_array($_SESSION["app_cache"])) {
@@ -679,7 +711,7 @@ function get_live_quote($instrumentKey, $forceRefresh = false)
         }
     }
 
-    $symbol = normalize_symbol($instrumentKey);
+    $symbol = resolve_equity_symbol($instrumentKey);
     $indexQuote = nse_get_index_quote($symbol);
     if ($indexQuote) {
         $requestCache[$cacheKey] = $indexQuote;
@@ -898,7 +930,7 @@ function resolve_holding_display_price($instrumentKey, $displayName, $buyPrice)
 function resolve_holding_live_price($instrumentKey, $displayName, $buyPrice, $forceRefresh = false)
 {
     $buyPrice = (float) $buyPrice;
-    $quoteKey = $instrumentKey ? $instrumentKey : $displayName;
+    $quoteKey = $instrumentKey ? $instrumentKey : resolve_equity_symbol($displayName);
     $livePrice = $buyPrice;
 
     if ($quoteKey) {
@@ -908,7 +940,7 @@ function resolve_holding_live_price($instrumentKey, $displayName, $buyPrice, $fo
         }
     }
 
-    $fallbackSymbol = normalize_symbol($displayName);
+    $fallbackSymbol = resolve_equity_symbol($displayName);
     if (($livePrice <= 0 || abs($livePrice - $buyPrice) < 0.0001) && $fallbackSymbol !== "") {
         $fallbackQuote = get_live_quote($fallbackSymbol, $forceRefresh);
         if ($fallbackQuote && isset($fallbackQuote["last_price"]) && (float) $fallbackQuote["last_price"] > 0) {
@@ -939,7 +971,7 @@ function get_live_quote_fast($instrumentKey)
         return $_SESSION["quote_cache"][$cacheKey]["quote"];
     }
 
-    $normalized = normalize_symbol($instrumentKey);
+    $normalized = resolve_equity_symbol($instrumentKey);
     if ($normalized === "") {
         return null;
     }
@@ -1197,5 +1229,23 @@ function initialize_database($conn)
     $nameColumn = mysqli_query($conn, "SHOW COLUMNS FROM holdings LIKE 'display_name'");
     if (mysqli_num_rows($nameColumn) == 0) {
         mysqli_query($conn, "ALTER TABLE holdings ADD COLUMN display_name VARCHAR(120) NULL");
+    }
+
+    $legacyHoldings = mysqli_query($conn, "SELECT id, stock_name, instrument_key, display_name FROM holdings WHERE instrument_key IS NULL OR instrument_key = '' OR display_name IS NULL OR display_name = ''");
+    while ($legacyHoldings && ($row = mysqli_fetch_assoc($legacyHoldings))) {
+        $sourceName = $row["display_name"] ? $row["display_name"] : $row["stock_name"];
+        $resolvedSymbol = resolve_equity_symbol($sourceName);
+        if ($resolvedSymbol === "") {
+            continue;
+        }
+
+        $safeSymbol = mysqli_real_escape_string($conn, $resolvedSymbol);
+        $safeDisplayName = mysqli_real_escape_string($conn, "NSE:" . $resolvedSymbol);
+        $holdingId = (int) $row["id"];
+
+        mysqli_query(
+            $conn,
+            "UPDATE holdings SET instrument_key = '$safeSymbol', display_name = '$safeDisplayName' WHERE id = $holdingId"
+        );
     }
 }

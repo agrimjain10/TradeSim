@@ -7,7 +7,123 @@ if (!isset($GLOBALS["layout_shutdown_registered"])) {
         if (empty($GLOBALS["layout_footer_rendered"])) {
             return;
         }
-        ?>
+        echo "</body>";
+        echo "</html>";
+    });
+}
+
+function render_header($title, $active = "")
+{
+    global $conn;
+    header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+    header("Pragma: no-cache");
+    header("Expires: 0");
+    $message = isset($GLOBALS["preloaded_flash"]) ? $GLOBALS["preloaded_flash"] : get_flash();
+    $user = isset($_SESSION["user_id"]) ? current_user($conn) : null;
+    $marketStrip = isset($_SESSION["user_id"]) ? get_market_strip_snapshot(true) : [];
+    ?>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title><?php echo escape($title); ?></title>
+        <link rel="stylesheet" href="style.css">
+    </head>
+    <body>
+    <?php if (isset($_SESSION["user_id"])) : ?>
+        <div class="layout">
+            <div class="shell-backdrop"></div>
+            <div class="header-shell">
+                <div class="header-bar">
+                    <div class="brand-block">
+                        <a class="brand-mark" href="dashboard.php" aria-label="TradeSim home">
+                            <span class="brand-mark-core"></span>
+                        </a>
+                        <div class="logo-box">
+                            <h1>TradeSim</h1>
+                            <span>Paper trading workspace</span>
+                        </div>
+                    </div>
+                    <div class="top-search-wrap">
+                        <form method="get" action="stock.php" class="top-search-form" autocomplete="off">
+                            <div class="search-icon" aria-hidden="true"></div>
+                            <input type="text" id="top-search-input" name="symbol" placeholder="Search stocks, indices, or symbols" />
+                            <button type="submit">Open</button>
+                            <div id="top-search-suggest" class="suggest-box"></div>
+                        </form>
+                    </div>
+                    <div class="header-actions">
+                        <div class="balance-pill">
+                            <span>Available</span>
+                            <strong data-live-balance>Rs. <?php echo number_format((float) $user["balance"], 2); ?></strong>
+                        </div>
+                        <div class="profile-pill">
+                            <div class="profile-avatar"><?php echo strtoupper(substr($user["username"], 0, 1)); ?></div>
+                            <div>
+                                <strong><?php echo escape($user["username"]); ?></strong>
+                                <span>Investor mode</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="header-subbar">
+                    <div class="nav-links">
+                        <a class="<?php echo $active === "dashboard" ? "active" : ""; ?>" href="dashboard.php">Overview</a>
+                        <a class="<?php echo $active === "holdings" ? "active" : ""; ?>" href="holdings.php">Holdings</a>
+                        <a class="<?php echo $active === "watchlist" ? "active" : ""; ?>" href="watchlist.php">Watchlist</a>
+                        <a href="logout.php">Logout</a>
+                    </div>
+                    <div class="market-strip">
+                        <?php
+                        $marketStripTemplate = [
+                            ["label" => "NIFTY 50", "symbol" => "NIFTY 50"],
+                            ["label" => "SENSEX", "symbol" => "SENSEX"],
+                            ["label" => "BANK NIFTY", "symbol" => "NIFTY BANK"],
+                            ["label" => "NIFTY NEXT 50", "symbol" => "NIFTY NEXT 50"]
+                        ];
+                        $stripMap = [];
+                        foreach ($marketStrip as $item) {
+                            $stripMap[$item["symbol"]] = $item;
+                        }
+                        foreach ($marketStripTemplate as $item) :
+                            $row = isset($stripMap[$item["symbol"]]) ? $stripMap[$item["symbol"]] : null;
+                            $last = $row && isset($row["last"]) ? (float) $row["last"] : 0;
+                            $change = $row && isset($row["percentChange"]) ? (float) $row["percentChange"] : 0;
+                            ?>
+                            <a class="ticker-chip" data-market-symbol="<?php echo escape($item["symbol"]); ?>" href="stock.php?symbol=<?php echo urlencode($item["symbol"]); ?>">
+                                <span><?php echo escape($item["label"]); ?></span>
+                                <strong data-market-last><?php echo $last > 0 ? number_format($last, 2) : "NA"; ?></strong>
+                                <em data-market-change class="<?php echo $change >= 0 ? "profit" : "loss"; ?>">
+                                    <?php echo $last > 0 ? (($change >= 0 ? "+" : "") . number_format($change, 2) . "%") : "NA"; ?>
+                                </em>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </div>
+            <div class="page-body">
+    <?php else : ?>
+        <div class="login-area">
+    <?php endif; ?>
+
+    <?php if ($message) : ?>
+        <div class="flash <?php echo escape($message["type"]); ?>">
+            <?php echo escape($message["message"]); ?>
+        </div>
+    <?php endif; ?>
+    <?php
+}
+
+function render_footer()
+{
+    echo "</div>";
+
+    if (isset($_SESSION["user_id"])) {
+        echo "</div>";
+    }
+
+    ?>
     <script>
     (function () {
         window.TradeSimUI = {
@@ -124,119 +240,7 @@ if (!isset($GLOBALS["layout_shutdown_registered"])) {
         });
     })();
     </script>
-    </body>
-    </html>
-        <?php
-    });
-}
-
-function render_header($title, $active = "")
-{
-    global $conn;
-    $message = isset($GLOBALS["preloaded_flash"]) ? $GLOBALS["preloaded_flash"] : get_flash();
-    $user = isset($_SESSION["user_id"]) ? current_user($conn) : null;
-    $marketStrip = isset($_SESSION["user_id"]) ? get_market_strip_snapshot(true) : [];
-    ?>
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title><?php echo escape($title); ?></title>
-        <link rel="stylesheet" href="style.css">
-    </head>
-    <body>
-    <?php if (isset($_SESSION["user_id"])) : ?>
-        <div class="layout">
-            <div class="shell-backdrop"></div>
-            <div class="header-shell">
-                <div class="header-bar">
-                    <div class="brand-block">
-                        <a class="brand-mark" href="dashboard.php" aria-label="TradeSim home">
-                            <span class="brand-mark-core"></span>
-                        </a>
-                        <div class="logo-box">
-                            <h1>TradeSim</h1>
-                            <span>Paper trading workspace</span>
-                        </div>
-                    </div>
-                    <div class="top-search-wrap">
-                        <form method="get" action="stock.php" class="top-search-form" autocomplete="off">
-                            <div class="search-icon" aria-hidden="true"></div>
-                            <input type="text" id="top-search-input" name="symbol" placeholder="Search stocks, indices, or symbols" />
-                            <button type="submit">Open</button>
-                            <div id="top-search-suggest" class="suggest-box"></div>
-                        </form>
-                    </div>
-                    <div class="header-actions">
-                        <div class="balance-pill">
-                            <span>Available</span>
-                            <strong data-live-balance>Rs. <?php echo number_format((float) $user["balance"], 2); ?></strong>
-                        </div>
-                        <div class="profile-pill">
-                            <div class="profile-avatar"><?php echo strtoupper(substr($user["username"], 0, 1)); ?></div>
-                            <div>
-                                <strong><?php echo escape($user["username"]); ?></strong>
-                                <span>Investor mode</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="header-subbar">
-                    <div class="nav-links">
-                        <a class="<?php echo $active === "dashboard" ? "active" : ""; ?>" href="dashboard.php">Overview</a>
-                        <a class="<?php echo $active === "holdings" ? "active" : ""; ?>" href="holdings.php">Holdings</a>
-                        <a class="<?php echo $active === "watchlist" ? "active" : ""; ?>" href="watchlist.php">Watchlist</a>
-                        <a href="logout.php">Logout</a>
-                    </div>
-                    <div class="market-strip">
-                        <?php
-                        $marketStripTemplate = [
-                            ["label" => "NIFTY 50", "symbol" => "NIFTY 50"],
-                            ["label" => "SENSEX", "symbol" => "SENSEX"],
-                            ["label" => "BANK NIFTY", "symbol" => "NIFTY BANK"],
-                            ["label" => "NIFTY NEXT 50", "symbol" => "NIFTY NEXT 50"]
-                        ];
-                        $stripMap = [];
-                        foreach ($marketStrip as $item) {
-                            $stripMap[$item["symbol"]] = $item;
-                        }
-                        foreach ($marketStripTemplate as $item) :
-                            $row = isset($stripMap[$item["symbol"]]) ? $stripMap[$item["symbol"]] : null;
-                            $last = $row && isset($row["last"]) ? (float) $row["last"] : 0;
-                            $change = $row && isset($row["percentChange"]) ? (float) $row["percentChange"] : 0;
-                            ?>
-                            <a class="ticker-chip" data-market-symbol="<?php echo escape($item["symbol"]); ?>" href="stock.php?symbol=<?php echo urlencode($item["symbol"]); ?>">
-                                <span><?php echo escape($item["label"]); ?></span>
-                                <strong data-market-last><?php echo $last > 0 ? number_format($last, 2) : "NA"; ?></strong>
-                                <em data-market-change class="<?php echo $change >= 0 ? "profit" : "loss"; ?>">
-                                    <?php echo $last > 0 ? (($change >= 0 ? "+" : "") . number_format($change, 2) . "%") : "NA"; ?>
-                                </em>
-                            </a>
-                        <?php endforeach; ?>
-                    </div>
-                </div>
-            </div>
-            <div class="page-body">
-    <?php else : ?>
-        <div class="login-area">
-    <?php endif; ?>
-
-    <?php if ($message) : ?>
-        <div class="flash <?php echo escape($message["type"]); ?>">
-            <?php echo escape($message["message"]); ?>
-        </div>
-    <?php endif; ?>
     <?php
-}
-
-function render_footer()
-{
-    echo "</div>";
-
-    if (isset($_SESSION["user_id"])) {
-        echo "</div>";
-    }
 
     $GLOBALS["layout_footer_rendered"] = true;
 }
