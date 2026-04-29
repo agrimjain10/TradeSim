@@ -85,7 +85,32 @@ render_header($symbol . " Details", "dashboard");
     <div class="section-box stock-chart-panel">
         <div class="section-head">
             <h3>Price Chart</h3>
-            <p class="help-text">Recent trend for <?php echo escape($symbol); ?> with auto-refreshing live history.</p>
+            <p class="help-text">Live intraday session for <?php echo escape($symbol); ?> with timed market moves.</p>
+        </div>
+        <div class="chart-toolbar">
+            <span class="chart-badge chart-badge-live">Live 1D</span>
+            <span class="chart-badge" id="chart-interval">5 min candles</span>
+            <span class="chart-badge" id="chart-updated">Updated <?php echo date("H:i"); ?></span>
+        </div>
+        <div class="chart-stat-strip">
+            <div class="chart-stat-pill">
+                <span>Session Open</span>
+                <strong id="chart-session-open">Rs. <?php echo number_format($summary["open"], 2); ?></strong>
+            </div>
+            <div class="chart-stat-pill">
+                <span>Session High</span>
+                <strong id="chart-session-high">Rs. <?php echo number_format($summary["high"], 2); ?></strong>
+            </div>
+            <div class="chart-stat-pill">
+                <span>Session Low</span>
+                <strong id="chart-session-low">Rs. <?php echo number_format($summary["low"], 2); ?></strong>
+            </div>
+            <div class="chart-stat-pill">
+                <span>Move</span>
+                <strong id="chart-session-move" class="<?php echo $summary["changePercent"] >= 0 ? "profit" : "loss"; ?>">
+                    <?php echo ($summary["changePercent"] >= 0 ? "+" : "") . number_format($summary["changePercent"], 2); ?>%
+                </strong>
+            </div>
         </div>
         <div class="table-box chart-panel-box chart-stage">
             <div class="chart-grid-glow"></div>
@@ -195,6 +220,58 @@ render_header($symbol . " Details", "dashboard");
     const signalCard = document.getElementById("trade-signal-card");
     const sellQtyInput = document.getElementById("sell-qty-input");
     let chart = null;
+    const lastPriceGuide = {
+        id: "lastPriceGuide",
+        afterDatasetsDraw(chartRef) {
+            const dataset = chartRef.data.datasets[chartRef.data.datasets.length - 1];
+            if (!dataset || !Array.isArray(dataset.data) || dataset.data.length === 0) return;
+
+            const meta = chartRef.getDatasetMeta(chartRef.data.datasets.length - 1);
+            const lastElement = meta && meta.data && meta.data.length > 0 ? meta.data[meta.data.length - 1] : null;
+            if (!lastElement) return;
+
+            const ctx = chartRef.ctx;
+            const chartArea = chartRef.chartArea;
+            const y = lastElement.y;
+            const x = lastElement.x;
+            const lastValue = Number(dataset.data[dataset.data.length - 1] || 0);
+
+            ctx.save();
+            ctx.strokeStyle = "rgba(22, 61, 51, 0.18)";
+            ctx.setLineDash([5, 5]);
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(chartArea.left, y);
+            ctx.lineTo(chartArea.right, y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            ctx.fillStyle = "#163d33";
+            ctx.beginPath();
+            ctx.arc(x, y, 4, 0, Math.PI * 2);
+            ctx.fill();
+
+            const label = "Rs. " + formatPlainNumber(lastValue, 2);
+            ctx.font = "600 12px Instrument Sans, sans-serif";
+            const textWidth = ctx.measureText(label).width;
+            const badgeWidth = textWidth + 16;
+            const badgeHeight = 24;
+            const badgeX = Math.max(chartArea.left + 6, chartArea.right - badgeWidth - 6);
+            const badgeY = Math.max(chartArea.top + 6, y - badgeHeight - 8);
+
+            ctx.fillStyle = "rgba(253, 251, 247, 0.96)";
+            ctx.strokeStyle = "rgba(92, 77, 59, 0.14)";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.roundRect(badgeX, badgeY, badgeWidth, badgeHeight, 12);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = "#163d33";
+            ctx.fillText(label, badgeX + 8, badgeY + 16);
+            ctx.restore();
+        }
+    };
 
     function formatPlainNumber(value, digits = 2) {
         return Number(value || 0).toLocaleString("en-IN", {
@@ -218,6 +295,29 @@ render_header($symbol . " Details", "dashboard");
         node.textContent = "Price is trading around " + position.toFixed(0) + "% of today's range.";
     }
 
+    function updateChartStats(chartData, quote) {
+        const meta = chartData && chartData.meta ? chartData.meta : {};
+        const previousClose = Number(meta.previousClose || (quote ? quote.close : 0) || 0);
+        const sessionOpen = Number(meta.sessionOpen || (quote ? quote.open : 0) || previousClose || 0);
+        const sessionHigh = Number(meta.sessionHigh || (quote ? quote.high : 0) || 0);
+        const sessionLow = Number(meta.sessionLow || (quote ? quote.low : 0) || 0);
+        const sessionMove = Number(meta.sessionChangePercent || 0);
+        const updatedLabel = meta.lastUpdatedLabel || new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false });
+        const intervalLabel = meta.interval ? meta.interval.replace("m", " min") : "5 min";
+        const moveNode = document.getElementById("chart-session-move");
+
+        document.getElementById("chart-session-open").textContent = ui.formatCurrency(sessionOpen);
+        document.getElementById("chart-session-high").textContent = ui.formatCurrency(sessionHigh);
+        document.getElementById("chart-session-low").textContent = ui.formatCurrency(sessionLow);
+        document.getElementById("chart-updated").textContent = "Updated " + updatedLabel;
+        document.getElementById("chart-interval").textContent = intervalLabel + " candles";
+
+        if (moveNode) {
+            moveNode.textContent = ui.formatSignedPercent(sessionMove);
+            ui.applyDirection(moveNode, sessionMove);
+        }
+    }
+
     function buildGradient(ctx, chartArea, positive) {
         const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
         if (positive) {
@@ -230,38 +330,62 @@ render_header($symbol . " Details", "dashboard");
         return gradient;
     }
 
-    function renderChart(labels, prices) {
-        if (!chartCanvas || !Array.isArray(prices) || prices.length === 0) return;
+    function renderChart(chartData) {
+        if (!chartCanvas || !chartData || !Array.isArray(chartData.prices) || chartData.prices.length === 0) return;
 
+        const labels = Array.isArray(chartData.labels) ? chartData.labels : [];
+        const prices = chartData.prices;
+        const previousClose = Number(chartData.meta && chartData.meta.previousClose ? chartData.meta.previousClose : 0);
         const positive = prices[prices.length - 1] >= prices[0];
         const strokeColor = positive ? "#12825c" : "#c65c38";
+        const previousCloseLine = previousClose > 0 ? new Array(prices.length).fill(previousClose) : [];
+        const tickStep = Math.max(1, Math.round(labels.length / 6));
+        const datasets = [];
+
+        if (previousCloseLine.length > 0) {
+            datasets.push({
+                data: previousCloseLine,
+                borderColor: "rgba(118, 105, 91, 0.35)",
+                borderDash: [6, 6],
+                borderWidth: 1,
+                pointRadius: 0,
+                fill: false,
+                tension: 0,
+                order: 0
+            });
+        }
+
+        datasets.push({
+            data: prices,
+            borderColor: strokeColor,
+            borderWidth: 2.5,
+            backgroundColor: function (context) {
+                const chartRef = context.chart;
+                const area = chartRef.chartArea;
+                if (!area) {
+                    return positive ? "rgba(28, 130, 92, 0.18)" : "rgba(198, 92, 56, 0.18)";
+                }
+                return buildGradient(chartRef.ctx, area, positive);
+            },
+            fill: true,
+            tension: 0.24,
+            cubicInterpolationMode: "monotone",
+            pointRadius: function (context) {
+                return context.dataIndex === context.dataset.data.length - 1 ? 3.5 : 0;
+            },
+            pointHoverRadius: 5,
+            pointBackgroundColor: strokeColor,
+            order: 1
+        });
 
         if (!chart) {
             chart = new Chart(chartCanvas, {
                 type: "line",
                 data: {
                     labels: labels,
-                    datasets: [{
-                        data: prices,
-                        borderColor: strokeColor,
-                        borderWidth: 2.5,
-                        backgroundColor: function (context) {
-                            const chartRef = context.chart;
-                            const area = chartRef.chartArea;
-                            if (!area) {
-                                return positive ? "rgba(28, 130, 92, 0.18)" : "rgba(198, 92, 56, 0.18)";
-                            }
-                            return buildGradient(chartRef.ctx, area, positive);
-                        },
-                        fill: true,
-                        tension: 0.34,
-                        pointRadius: function (context) {
-                            return context.dataIndex === context.dataset.data.length - 1 ? 3.5 : 0;
-                        },
-                        pointHoverRadius: 5,
-                        pointBackgroundColor: strokeColor
-                    }]
+                    datasets: datasets
                 },
+                plugins: [lastPriceGuide],
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
@@ -279,8 +403,16 @@ render_header($symbol . " Details", "dashboard");
                             backgroundColor: "rgba(27, 24, 20, 0.92)",
                             displayColors: false,
                             callbacks: {
+                                title: function (items) {
+                                    return items && items[0] ? "Time " + items[0].label : "";
+                                },
                                 label: function (context) {
                                     return "Price " + ui.formatCurrency(context.parsed.y);
+                                },
+                                afterLabel: function (context) {
+                                    if (!previousClose) return "";
+                                    const move = ((context.parsed.y - previousClose) / previousClose) * 100;
+                                    return "Vs prev close " + ui.formatSignedPercent(move);
                                 }
                             }
                         }
@@ -288,7 +420,17 @@ render_header($symbol . " Details", "dashboard");
                     scales: {
                         x: {
                             grid: { color: "rgba(118, 105, 91, 0.08)" },
-                            ticks: { color: "#7a6b5d", maxTicksLimit: 8 }
+                            ticks: {
+                                color: "#7a6b5d",
+                                maxTicksLimit: 7,
+                                autoSkip: false,
+                                callback: function (value, index) {
+                                    if (index === 0 || index === labels.length - 1 || index % tickStep === 0) {
+                                        return labels[index];
+                                    }
+                                    return "";
+                                }
+                            }
                         },
                         y: {
                             grid: { color: "rgba(118, 105, 91, 0.08)" },
@@ -306,10 +448,8 @@ render_header($symbol . " Details", "dashboard");
         }
 
         chart.data.labels = labels;
-        chart.data.datasets[0].data = prices;
-        chart.data.datasets[0].borderColor = strokeColor;
-        chart.data.datasets[0].pointBackgroundColor = strokeColor;
-        chart.data.datasets[0].backgroundColor = function (context) {
+        chart.data.datasets = datasets;
+        chart.data.datasets[chart.data.datasets.length - 1].backgroundColor = function (context) {
             const chartRef = context.chart;
             const area = chartRef.chartArea;
             if (!area) {
@@ -360,9 +500,10 @@ render_header($symbol . " Details", "dashboard");
         }
 
         updateRangePosition(quote);
+        updateChartStats(payload.chart, quote);
 
         if (payload.chart) {
-            renderChart(payload.chart.labels || [], payload.chart.prices || []);
+            renderChart(payload.chart);
         }
     }
 
@@ -377,6 +518,6 @@ render_header($symbol . " Details", "dashboard");
     }
 
     refreshStock();
-    window.setInterval(refreshStock, 18000);
+    window.setInterval(refreshStock, 10000);
 })();
 </script>

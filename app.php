@@ -239,6 +239,24 @@ function normalize_symbol($value)
     return $symbol;
 }
 
+function market_timezone()
+{
+    static $timezone = null;
+
+    if ($timezone === null) {
+        $timezone = new DateTimeZone("Asia/Kolkata");
+    }
+
+    return $timezone;
+}
+
+function format_market_time($timestamp, $format = "H:i")
+{
+    $date = new DateTime("@" . (int) $timestamp);
+    $date->setTimezone(market_timezone());
+    return $date->format($format);
+}
+
 function resolve_equity_symbol($value)
 {
     $symbol = normalize_symbol($value);
@@ -266,6 +284,46 @@ function resolve_equity_symbol($value)
 
     if (isset($aliasMap[$companyKey])) {
         return $aliasMap[$companyKey];
+    }
+
+    $cacheKey = "symbol_resolve_" . $companyKey;
+    $cachedSymbol = session_cache_get($cacheKey, 86400);
+    if (is_string($cachedSymbol) && $cachedSymbol !== "") {
+        return $cachedSymbol;
+    }
+
+    if ($companyKey !== "" && preg_match('/^[A-Z0-9]+$/', $symbol)) {
+        $directQuote = nse_get_equity_quote($symbol);
+        if ($directQuote && isset($directQuote["last_price"]) && (float) $directQuote["last_price"] > 0) {
+            session_cache_put($cacheKey, $symbol);
+            return $symbol;
+        }
+    }
+
+    $query = trim(str_replace(["NSE:", "BSE:"], "", (string) $value));
+    if ($query !== "") {
+        $matches = nse_search_stocks($query);
+        foreach ($matches as $match) {
+            $candidate = isset($match["trading_symbol"]) ? strtoupper(trim($match["trading_symbol"])) : "";
+            if ($candidate === "") {
+                continue;
+            }
+
+            $candidateName = isset($match["name"]) ? $match["name"] : $candidate;
+            $candidateKey = normalize_company_key($candidateName);
+            if ($candidateKey === $companyKey || $candidate === $symbol) {
+                session_cache_put($cacheKey, $candidate);
+                return $candidate;
+            }
+        }
+
+        if (count($matches) > 0 && isset($matches[0]["trading_symbol"])) {
+            $candidate = strtoupper(trim($matches[0]["trading_symbol"]));
+            if ($candidate !== "") {
+                session_cache_put($cacheKey, $candidate);
+                return $candidate;
+            }
+        }
     }
 
     return $symbol;
@@ -604,6 +662,132 @@ function yahoo_get_equity_quote($symbol)
     ];
 }
 
+function yahoo_get_intraday_series($symbol, $range = "1d", $interval = "5m")
+{
+    $cleanSymbol = normalize_symbol($symbol);
+    if ($cleanSymbol === "") {
+        return null;
+    }
+
+    $url = "https://query1.finance.yahoo.com/v8/finance/chart/" . rawurlencode($cleanSymbol . ".NS")
+        . "?range=" . rawurlencode($range)
+        . "&interval=" . rawurlencode($interval)
+        . "&includePrePost=false&events=div%2Csplits";
+
+    $json = api_get_json($url);
+    if (
+        !$json ||
+        !isset($json["chart"]["result"][0]) ||
+        !is_array($json["chart"]["result"][0])
+    ) {
+        return null;
+    }
+
+    $result = $json["chart"]["result"][0];
+    $meta = isset($result["meta"]) && is_array($result["meta"]) ? $result["meta"] : [];
+    $timestamps = isset($result["timestamp"]) && is_array($result["timestamp"]) ? $result["timestamp"] : [];
+    $quoteBlock = isset($result["indicators"]["quote"][0]) && is_array($result["indicators"]["quote"][0])
+        ? $result["indicators"]["quote"][0]
+        : [];
+
+    if (count($timestamps) === 0 || count($quoteBlock) === 0) {
+        return null;
+    }
+
+    $opens = isset($quoteBlock["open"]) && is_array($quoteBlock["open"]) ? $quoteBlock["open"] : [];
+    $highs = isset($quoteBlock["high"]) && is_array($quoteBlock["high"]) ? $quoteBlock["high"] : [];
+    $lows = isset($quoteBlock["low"]) && is_array($quoteBlock["low"]) ? $quoteBlock["low"] : [];
+    $closes = isset($quoteBlock["close"]) && is_array($quoteBlock["close"]) ? $quoteBlock["close"] : [];
+    $volumes = isset($quoteBlock["volume"]) && is_array($quoteBlock["volume"]) ? $quoteBlock["volume"] : [];
+
+    $labels = [];
+    $prices = [];
+    $seriesOpen = [];
+    $seriesHigh = [];
+    $seriesLow = [];
+    $seriesVolume = [];
+    $seriesTimestamps = [];
+    $lastValidClose = 0;
+
+    foreach ($timestamps as $index => $timestamp) {
+        $pointTime = (int) $timestamp;
+        if ($pointTime <= 0) {
+            continue;
+        }
+
+        $open = isset($opens[$index]) ? (float) $opens[$index] : 0;
+        $high = isset($highs[$index]) ? (float) $highs[$index] : 0;
+        $low = isset($lows[$index]) ? (float) $lows[$index] : 0;
+        $close = isset($closes[$index]) ? (float) $closes[$index] : 0;
+        $volume = isset($volumes[$index]) ? (float) $volumes[$index] : 0;
+
+        if ($close <= 0) {
+            if ($open > 0 && $high > 0 && $low > 0) {
+                $close = ($open + $high + $low) / 3;
+            } elseif ($lastValidClose > 0) {
+                $close = $lastValidClose;
+            } else {
+                continue;
+            }
+        }
+
+        if ($open <= 0) {
+            $open = $close;
+        }
+        if ($high <= 0) {
+            $high = max($open, $close);
+        }
+        if ($low <= 0) {
+            $low = min($open, $close);
+        }
+
+        $labels[] = format_market_time($pointTime);
+        $prices[] = round($close, 2);
+        $seriesOpen[] = round($open, 2);
+        $seriesHigh[] = round($high, 2);
+        $seriesLow[] = round($low, 2);
+        $seriesVolume[] = (int) round($volume);
+        $seriesTimestamps[] = $pointTime;
+        $lastValidClose = $close;
+    }
+
+    if (count($prices) < 2) {
+        return null;
+    }
+
+    $previousClose = isset($meta["previousClose"]) ? (float) $meta["previousClose"] : 0;
+    $sessionHigh = count($seriesHigh) > 0 ? max($seriesHigh) : max($prices);
+    $sessionLow = count($seriesLow) > 0 ? min($seriesLow) : min($prices);
+    $firstPrice = (float) $prices[0];
+    $lastPrice = (float) $prices[count($prices) - 1];
+    $sessionChange = $lastPrice - $firstPrice;
+    $sessionChangePercent = $firstPrice > 0 ? ($sessionChange / $firstPrice) * 100 : 0;
+    $lastTimestamp = $seriesTimestamps[count($seriesTimestamps) - 1];
+
+    return [
+        "labels" => $labels,
+        "prices" => $prices,
+        "opens" => $seriesOpen,
+        "highs" => $seriesHigh,
+        "lows" => $seriesLow,
+        "volumes" => $seriesVolume,
+        "timestamps" => $seriesTimestamps,
+        "meta" => [
+            "source" => "yahoo_intraday",
+            "range" => $range,
+            "interval" => $interval,
+            "previousClose" => $previousClose,
+            "sessionHigh" => $sessionHigh,
+            "sessionLow" => $sessionLow,
+            "sessionOpen" => $firstPrice,
+            "sessionChange" => $sessionChange,
+            "sessionChangePercent" => $sessionChangePercent,
+            "lastUpdated" => $lastTimestamp,
+            "lastUpdatedLabel" => format_market_time($lastTimestamp)
+        ]
+    ];
+}
+
 function nse_get_index_quote($indexName, $forceRefresh = false)
 {
     $indices = nse_get_indices($forceRefresh);
@@ -814,7 +998,7 @@ function get_price_history_series($symbol, $limit = 120, $liveQuote = null)
     $prices = [];
 
     while ($result && ($row = mysqli_fetch_assoc($result))) {
-        $labels[] = date("H:i", strtotime($row["created_at"]));
+        $labels[] = format_market_time(strtotime($row["created_at"]));
         $prices[] = (float) $row["price"];
     }
 
@@ -830,8 +1014,62 @@ function get_price_history_series($symbol, $limit = 120, $liveQuote = null)
 
     return [
         "labels" => $labels,
-        "prices" => $prices
+        "prices" => $prices,
+        "meta" => [
+            "source" => "local_history",
+            "range" => "session",
+            "interval" => "local",
+            "previousClose" => $liveQuote && isset($liveQuote["ohlc"]["close"]) ? (float) $liveQuote["ohlc"]["close"] : 0,
+            "sessionHigh" => count($prices) > 0 ? max($prices) : 0,
+            "sessionLow" => count($prices) > 0 ? min($prices) : 0,
+            "sessionOpen" => count($prices) > 0 ? (float) $prices[0] : 0,
+            "sessionChange" => count($prices) > 1 ? (float) $prices[count($prices) - 1] - (float) $prices[0] : 0,
+            "sessionChangePercent" => count($prices) > 1 && (float) $prices[0] > 0
+                ? (((float) $prices[count($prices) - 1] - (float) $prices[0]) / (float) $prices[0]) * 100
+                : 0,
+            "lastUpdated" => time(),
+            "lastUpdatedLabel" => format_market_time(time())
+        ]
     ];
+}
+
+function get_intraday_chart_series($symbol, $liveQuote = null)
+{
+    $normalized = normalize_symbol($symbol);
+    $yahooSeries = yahoo_get_intraday_series($normalized, "1d", "5m");
+
+    if ($yahooSeries && isset($yahooSeries["prices"]) && count($yahooSeries["prices"]) >= 2) {
+        $liveLast = $liveQuote && isset($liveQuote["last_price"]) ? (float) $liveQuote["last_price"] : 0;
+        if ($liveLast > 0) {
+            $lastIndex = count($yahooSeries["prices"]) - 1;
+            $chartLast = (float) $yahooSeries["prices"][$lastIndex];
+            if (abs($liveLast - $chartLast) >= 0.01) {
+                $yahooSeries["prices"][$lastIndex] = round($liveLast, 2);
+                if (isset($yahooSeries["highs"][$lastIndex])) {
+                    $yahooSeries["highs"][$lastIndex] = round(max((float) $yahooSeries["highs"][$lastIndex], $liveLast), 2);
+                }
+                if (isset($yahooSeries["lows"][$lastIndex])) {
+                    $yahooSeries["lows"][$lastIndex] = round(min((float) $yahooSeries["lows"][$lastIndex], $liveLast), 2);
+                }
+            }
+
+            if (isset($yahooSeries["meta"]) && is_array($yahooSeries["meta"])) {
+                $yahooSeries["meta"]["sessionHigh"] = max((float) $yahooSeries["meta"]["sessionHigh"], $liveLast);
+                $yahooSeries["meta"]["sessionLow"] = min((float) $yahooSeries["meta"]["sessionLow"], $liveLast);
+                $firstPrice = isset($yahooSeries["meta"]["sessionOpen"]) ? (float) $yahooSeries["meta"]["sessionOpen"] : (float) $yahooSeries["prices"][0];
+                $yahooSeries["meta"]["sessionChange"] = $liveLast - $firstPrice;
+                $yahooSeries["meta"]["sessionChangePercent"] = $firstPrice > 0
+                    ? (($liveLast - $firstPrice) / $firstPrice) * 100
+                    : 0;
+                $yahooSeries["meta"]["lastUpdated"] = time();
+                $yahooSeries["meta"]["lastUpdatedLabel"] = format_market_time(time());
+            }
+        }
+
+        return $yahooSeries;
+    }
+
+    return get_price_history_series($normalized, 120, $liveQuote);
 }
 
 function normalize_company_key($value)

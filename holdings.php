@@ -82,21 +82,19 @@ render_header("Your Holdings", "holdings");
 <div class="dashboard-grid">
     <div class="section-box">
         <div class="table-box elevated-table">
-            <table class="stock-table responsive-table">
+            <table class="stock-table responsive-table holdings-table">
                 <thead>
                     <tr>
-                        <th>Stock</th>
-                        <th>Qty</th>
-                        <th>Buy Price</th>
-                        <th>Current Price</th>
-                        <th>Return</th>
-                        <th>Current Value</th>
+                        <th>Company</th>
+                        <th>Market Price</th>
+                        <th>Returns</th>
+                        <th>Current / Invested</th>
                         <th>Sell</th>
                     </tr>
                 </thead>
                 <tbody id="holdings-table-body">
                     <?php if (count($holdingList) == 0) : ?>
-                        <tr><td colspan="7">No holdings found.</td></tr>
+                        <tr><td colspan="5">No holdings found.</td></tr>
                     <?php endif; ?>
 
                     <?php foreach ($holdingList as $holdingRow) : ?>
@@ -106,22 +104,38 @@ render_header("Your Holdings", "holdings");
                         $symbolOnly = strtoupper(str_replace(["NSE:", "BSE:"], "", ($holdingRow["display_name"] ? $holdingRow["display_name"] : $holdingRow["stock_name"])));
                         ?>
                         <tr>
-                            <td data-label="Stock">
-                                <div class="table-primary-cell">
+                            <td data-label="Company">
+                                <div class="table-primary-cell holdings-company-cell">
                                     <a class="stock-link" href="stock.php?symbol=<?php echo urlencode($symbolOnly); ?>">
                                         <?php echo escape($holdingRow["display_name"] ? $holdingRow["display_name"] : $holdingRow["stock_name"]); ?>
                                     </a>
                                     <span><?php echo escape($symbolOnly); ?></span>
+                                    <div class="holdings-meta-line">
+                                        <span><?php echo (int) $holdingRow["quantity"]; ?> shares</span>
+                                        <span>Avg. Rs. <?php echo number_format((float) $holdingRow["buy_price"], 2); ?></span>
+                                    </div>
                                 </div>
                             </td>
-                            <td data-label="Qty"><?php echo (int) $holdingRow["quantity"]; ?></td>
-                            <td data-label="Buy Price">Rs. <?php echo number_format((float) $holdingRow["buy_price"], 2); ?></td>
-                            <td data-label="Current Price">Rs. <?php echo number_format((float) $holdingRow["current_price"], 2); ?></td>
-                            <td data-label="Return" class="<?php echo $profitClass; ?>">
-                                <div><?php echo ($holdingRow["profit_percent"] >= 0 ? "+" : "") . number_format((float) $holdingRow["profit_percent"], 2); ?>%</div>
-                                <small><?php echo ($profit >= 0 ? "+" : "") . "Rs. " . number_format((float) $profit, 2); ?></small>
+                            <td data-label="Market Price">
+                                <div class="holdings-value-stack">
+                                    <strong>Rs. <?php echo number_format((float) $holdingRow["current_price"], 2); ?></strong>
+                                    <small class="<?php echo $profitClass; ?>">
+                                        <?php echo ($holdingRow["profit_percent"] >= 0 ? "+" : "") . number_format((float) $holdingRow["profit_percent"], 2); ?>%
+                                    </small>
+                                </div>
                             </td>
-                            <td data-label="Current Value">Rs. <?php echo number_format((float) $holdingRow["holding_value"], 2); ?></td>
+                            <td data-label="Returns">
+                                <div class="holdings-value-stack <?php echo $profitClass; ?>">
+                                    <strong><?php echo ($profit >= 0 ? "+" : "") . "Rs. " . number_format((float) $profit, 2); ?></strong>
+                                    <small><?php echo ($holdingRow["profit_percent"] >= 0 ? "+" : "") . number_format((float) $holdingRow["profit_percent"], 2); ?>%</small>
+                                </div>
+                            </td>
+                            <td data-label="Current / Invested">
+                                <div class="holdings-value-stack">
+                                    <strong>Rs. <?php echo number_format((float) $holdingRow["holding_value"], 2); ?></strong>
+                                    <small>Invested Rs. <?php echo number_format((float) $holdingRow["buy_price"] * (int) $holdingRow["quantity"], 2); ?></small>
+                                </div>
+                            </td>
                             <td data-label="Sell">
                                 <form method="post" action="sell.php" class="stock-form">
                                     <input type="hidden" name="instrument_key" value="<?php echo escape($holdingRow["instrument_key"]); ?>">
@@ -169,12 +183,30 @@ render_header("Your Holdings", "holdings");
     if (!ui) return;
 
     const body = document.getElementById("holdings-table-body");
+    let lastSnapshot = new Map();
+
+    function priceKey(row) {
+        return String(row.instrumentKey || row.symbol || row.displayName || "");
+    }
+
+    function rowChanged(row) {
+        const key = priceKey(row);
+        const previous = lastSnapshot.get(key);
+        const current = JSON.stringify({
+            currentPrice: Number(row.currentPrice || 0).toFixed(2),
+            profitValue: Number(row.profitValue || 0).toFixed(2),
+            holdingValue: Number(row.holdingValue || 0).toFixed(2)
+        });
+
+        lastSnapshot.set(key, current);
+        return previous !== null && typeof previous !== "undefined" && previous !== current;
+    }
 
     function renderRows(rows) {
         if (!body) return;
 
         if (!Array.isArray(rows) || rows.length === 0) {
-            body.innerHTML = "<tr><td colspan='7'>No holdings found.</td></tr>";
+            body.innerHTML = "<tr><td colspan='5'>No holdings found.</td></tr>";
             return;
         }
 
@@ -184,22 +216,38 @@ render_header("Your Holdings", "holdings");
             const profitValue = (Number(row.profitValue) >= 0 ? "+" : "") + ui.formatCurrency(row.profitValue);
             const displayName = ui.escapeHtml(row.displayName);
             const symbol = ui.escapeHtml(row.symbol);
+            const investedValue = ui.formatCurrency(Number(row.buyPrice) * Number(row.quantity));
+            const flashClass = rowChanged(row) ? " holdings-row-live" : "";
             return `
-                <tr>
-                    <td data-label="Stock">
-                        <div class="table-primary-cell">
+                <tr class="${flashClass}">
+                    <td data-label="Company">
+                        <div class="table-primary-cell holdings-company-cell">
                             <a class="stock-link" href="stock.php?symbol=${encodeURIComponent(row.symbol)}">${displayName}</a>
                             <span>${symbol}</span>
+                            <div class="holdings-meta-line">
+                                <span>${row.quantity} shares</span>
+                                <span>Avg. ${ui.formatCurrency(row.buyPrice)}</span>
+                            </div>
                         </div>
                     </td>
-                    <td data-label="Qty">${row.quantity}</td>
-                    <td data-label="Buy Price">${ui.formatCurrency(row.buyPrice)}</td>
-                    <td data-label="Current Price">${ui.formatCurrency(row.currentPrice)}</td>
-                    <td data-label="Return" class="${profitClass}">
-                        <div>${profitPercent}</div>
-                        <small>${profitValue}</small>
+                    <td data-label="Market Price">
+                        <div class="holdings-value-stack">
+                            <strong>${ui.formatCurrency(row.currentPrice)}</strong>
+                            <small class="${profitClass}">${profitPercent}</small>
+                        </div>
                     </td>
-                    <td data-label="Current Value">${ui.formatCurrency(row.holdingValue)}</td>
+                    <td data-label="Returns">
+                        <div class="holdings-value-stack ${profitClass}">
+                            <strong>${profitValue}</strong>
+                            <small>${profitPercent}</small>
+                        </div>
+                    </td>
+                    <td data-label="Current / Invested">
+                        <div class="holdings-value-stack">
+                            <strong>${ui.formatCurrency(row.holdingValue)}</strong>
+                            <small>Invested ${investedValue}</small>
+                        </div>
+                    </td>
                     <td data-label="Sell">
                         <form method="post" action="sell.php" class="stock-form">
                             <input type="hidden" name="instrument_key" value="${row.instrumentKey || row.symbol}">
@@ -250,7 +298,7 @@ render_header("Your Holdings", "holdings");
 
     async function refreshHoldings() {
         try {
-            const response = await fetch("live_data.php?view=holdings", { cache: "no-store" });
+            const response = await fetch("live_data.php?view=holdings&t=" + Date.now(), { cache: "no-store" });
             const payload = await response.json();
             if (!payload.ok) return;
             applyHoldings(payload);
@@ -259,6 +307,6 @@ render_header("Your Holdings", "holdings");
     }
 
     refreshHoldings();
-    window.setInterval(refreshHoldings, 20000);
+    window.setInterval(refreshHoldings, 5000);
 })();
 </script>

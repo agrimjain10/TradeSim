@@ -795,6 +795,58 @@ input[type="number"] {
     font-size: 0.84rem;
 }
 
+.holdings-table th:nth-child(1) {
+    width: 40%;
+}
+
+.holdings-company-cell {
+    gap: 0.28rem;
+}
+
+.holdings-company-cell .stock-link {
+    font-size: 1.02rem;
+    font-weight: 800;
+}
+
+.holdings-meta-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+    color: var(--muted);
+    font-size: 0.88rem;
+}
+
+.holdings-meta-line span + span::before {
+    content: "\2022";
+    margin-right: 0.55rem;
+    color: var(--muted-soft);
+}
+
+.holdings-value-stack {
+    display: grid;
+    gap: 0.2rem;
+}
+
+.holdings-value-stack strong {
+    margin-top: 0;
+    font-size: 1.12rem;
+    letter-spacing: -0.03em;
+}
+
+.holdings-value-stack small {
+    color: var(--muted);
+    font-size: 0.88rem;
+}
+
+.holdings-value-stack.profit small,
+.holdings-value-stack.loss small {
+    color: inherit;
+}
+
+.holdings-row-live td {
+    animation: holdingsPulse 1s ease;
+}
+
 .metric-pair {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1081,6 +1133,62 @@ input:-webkit-autofill:focus {
     overflow: hidden;
 }
 
+.chart-toolbar,
+.chart-stat-strip {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.chart-toolbar {
+    margin: 0.35rem 0 0.9rem;
+}
+
+.chart-badge,
+.chart-stat-pill {
+    background: rgba(255, 253, 250, 0.9);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+}
+
+.chart-badge {
+    padding: 0.45rem 0.8rem;
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.chart-badge-live {
+    background: rgba(22, 61, 51, 0.08);
+    color: var(--accent);
+    border-color: rgba(22, 61, 51, 0.12);
+}
+
+.chart-stat-strip {
+    margin-bottom: 1rem;
+}
+
+.chart-stat-pill {
+    min-width: 132px;
+    padding: 0.7rem 0.9rem;
+}
+
+.chart-stat-pill span {
+    display: block;
+    color: var(--muted-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.67rem;
+    font-weight: 700;
+    margin-bottom: 0.12rem;
+}
+
+.chart-stat-pill strong {
+    font-family: "Manrope", sans-serif;
+    font-size: 0.98rem;
+}
+
 .chart-grid-glow {
     position: absolute;
     inset: 0;
@@ -1151,6 +1259,15 @@ input:-webkit-autofill:focus {
     }
 }
 
+@keyframes holdingsPulse {
+    0% {
+        background: rgba(22, 61, 51, 0.08);
+    }
+    100% {
+        background: transparent;
+    }
+}
+
 @media (max-width: 900px) {
     .stock-live-grid {
         grid-template-columns: 1fr;
@@ -1158,6 +1275,10 @@ input:-webkit-autofill:focus {
 
     .chart-stage {
         min-height: 280px;
+    }
+
+    .chart-stat-pill {
+        min-width: calc(50% - 0.4rem);
     }
 }
 
@@ -1253,5 +1374,14 @@ input:-webkit-autofill:focus {
 
     .table-box {
         overflow: visible;
+    }
+
+    .holdings-meta-line {
+        gap: 0.3rem;
+    }
+
+    .holdings-meta-line span + span::before {
+        content: "";
+        margin: 0;
     }
 }

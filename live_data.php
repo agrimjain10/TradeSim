@@ -188,7 +188,7 @@ if ($view === "stock") {
     }
 
     $response["quote"] = $summary;
-    $response["chart"] = get_price_history_series($symbol, 120, $quote);
+    $response["chart"] = get_intraday_chart_series($symbol, $quote);
     $response["tradeSignal"] = get_trade_signal($quote);
     $response["holding"] = [
         "quantity" => $holdingQty,

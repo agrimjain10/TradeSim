@@ -19,7 +19,7 @@ if ($live && isset($live["last_price"])) {
     record_price_history($symbol, (float) $live["last_price"]);
 }
 
-$series = get_price_history_series($symbol, 120, $live);
+$series = get_intraday_chart_series($symbol, $live);
 
 header("Content-Type: application/json");
 echo json_encode($series);
