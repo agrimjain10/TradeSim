@@ -1,6 +1,6 @@
 # TradeSim
 
-TradeSim is a simple stock trading simulator built with PHP.
+TradeSim is a stock trading simulator built with PHP and MySQL.
 
 ## What it does
 
@@ -23,15 +23,40 @@ TradeSim is a simple stock trading simulator built with PHP.
 - `style.css` — styling for the site
 - `layout.php` — page layout and header/footer
 
-## How to use
+## Setup
 
-1. Put this project in your PHP web server folder.
-2. Open `index.php` in your browser.
-3. Log in and start trading.
+1. Put the project inside your PHP web server folder or map it through Apache.
+2. Create or import the `tradesim_app` database.
+3. Import `tradesim_app_export.sql` if you want the base schema and starter data.
+4. Open the project in the browser and log in.
+
+Default login:
+
+- Username: `agrim`
+- Password: `123`
+
+## Database configuration
+
+By default the app tries common local setups automatically:
+
+- `localhost:3306`
+- `127.0.0.1:3306`
+- `localhost:3307`
+- `127.0.0.1:3307`
+- XAMPP socket: `C:/xampp/mysql/mysql.sock`
+
+You can override that with environment variables:
+
+- `TRADESIM_DB_HOST`
+- `TRADESIM_DB_PORT`
+- `TRADESIM_DB_NAME`
+- `TRADESIM_DB_USER`
+- `TRADESIM_DB_PASSWORD`
+- `TRADESIM_DB_SOCKET`
 
 ## Notes
 
-- This is a demo project to show how a trading simulator can work.
-- It is meant to be simple and easy to understand.
+- Live quotes depend on external market endpoints being reachable.
+- The app now shows a detailed database boot error page instead of failing with a generic message.
 
 Enjoy using TradeSim!

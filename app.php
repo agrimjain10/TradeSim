@@ -1,14 +1,118 @@
 <?php
 session_start();
 
-$conn = mysqli_connect("localhost", "root", "", "tradesim_app");
 $UPSTOX_TOKEN = getenv("UPSTOX_ACCESS_TOKEN");
+$conn = connect_database($databaseErrors);
 
 if (!$conn) {
-    die("Database connection failed");
+    http_response_code(500);
+    echo render_database_boot_error($databaseErrors);
+    exit;
 }
 
 initialize_database($conn);
+
+function env_value($key, $default = "")
+{
+    $value = getenv($key);
+    if ($value === false || $value === null || $value === "") {
+        return $default;
+    }
+
+    return $value;
+}
+
+function connect_database(&$errors = [])
+{
+    mysqli_report(MYSQLI_REPORT_OFF);
+
+    $database = env_value("TRADESIM_DB_NAME", "tradesim_app");
+    $username = env_value("TRADESIM_DB_USER", "root");
+    $password = env_value("TRADESIM_DB_PASSWORD", "");
+    $hostCandidates = array_unique([
+        env_value("TRADESIM_DB_HOST", "localhost"),
+        "127.0.0.1",
+        "localhost"
+    ]);
+    $portCandidates = array_unique(array_map("intval", array_filter([
+        env_value("TRADESIM_DB_PORT", ""),
+        3306,
+        3307
+    ])));
+    $socketCandidates = array_unique(array_filter([
+        env_value("TRADESIM_DB_SOCKET", ""),
+        "C:/xampp/mysql/mysql.sock"
+    ]));
+
+    foreach ($hostCandidates as $host) {
+        foreach ($portCandidates as $port) {
+            $conn = @mysqli_connect($host, $username, $password, $database, $port);
+            if ($conn instanceof mysqli) {
+                mysqli_set_charset($conn, "utf8mb4");
+                return $conn;
+            }
+
+            $errors[] = $host . ":" . $port . " - " . mysqli_connect_error();
+        }
+    }
+
+    foreach ($socketCandidates as $socket) {
+        $conn = @mysqli_connect("localhost", $username, $password, $database, null, $socket);
+        if ($conn instanceof mysqli) {
+            mysqli_set_charset($conn, "utf8mb4");
+            return $conn;
+        }
+
+        $errors[] = "socket " . $socket . " - " . mysqli_connect_error();
+    }
+
+    return null;
+}
+
+function render_database_boot_error($errors)
+{
+    $safeErrors = [];
+    foreach ((array) $errors as $error) {
+        $safeErrors[] = htmlspecialchars((string) $error, ENT_QUOTES, "UTF-8");
+    }
+
+    $details = count($safeErrors) > 0
+        ? "<ul><li>" . implode("</li><li>", $safeErrors) . "</li></ul>"
+        : "<p>No connection attempts were recorded.</p>";
+
+    return <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TradeSim Database Error</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f7f3ec; color: #201a15; padding: 32px; }
+        .panel { max-width: 760px; margin: 0 auto; background: #fffdfa; border: 1px solid #e3d9cb; border-radius: 18px; padding: 24px 28px; box-shadow: 0 16px 36px rgba(54, 42, 31, 0.08); }
+        h1 { margin: 0 0 12px; font-size: 28px; }
+        p, li { line-height: 1.6; }
+        code { background: #f1ebe2; padding: 2px 6px; border-radius: 6px; }
+        ul { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <div class="panel">
+        <h1>TradeSim could not connect to MySQL</h1>
+        <p>Checked common local setups for <code>3306</code>, <code>3307</code>, and the XAMPP socket.</p>
+        <p>Fastest fix:</p>
+        <ul>
+            <li>Start MySQL / MariaDB</li>
+            <li>Import <code>tradesim_app_export.sql</code> if the database is missing</li>
+            <li>Optionally set <code>TRADESIM_DB_HOST</code>, <code>TRADESIM_DB_PORT</code>, <code>TRADESIM_DB_USER</code>, <code>TRADESIM_DB_PASSWORD</code>, or <code>TRADESIM_DB_SOCKET</code></li>
+        </ul>
+        <p>Connection attempts:</p>
+        {$details}
+    </div>
+</body>
+</html>
+HTML;
+}
 
 function redirect_to($page)
 {
@@ -61,7 +165,7 @@ function escape($text)
 function api_get_json($url, $headers = [], $cookieFile = null)
 {
     if (!function_exists("curl_init")) {
-        return null;
+        return stream_get_json($url, $headers);
     }
 
     $ch = curl_init();
@@ -85,15 +189,69 @@ function api_get_json($url, $headers = [], $cookieFile = null)
     curl_close($ch);
 
     if ($error || $status < 200 || $status >= 300) {
-        return null;
+        return stream_get_json($url, $headers);
     }
 
     $json = json_decode($response, true);
     if (!is_array($json)) {
-        return null;
+        return stream_get_json($url, $headers);
     }
 
     return $json;
+}
+
+function stream_get_json($url, $headers = [])
+{
+    $requestHeaders = $headers;
+    $hasUserAgent = false;
+
+    foreach ($requestHeaders as $header) {
+        if (stripos($header, "User-Agent:") === 0) {
+            $hasUserAgent = true;
+            break;
+        }
+    }
+
+    if (!$hasUserAgent) {
+        $requestHeaders[] = "User-Agent: Mozilla/5.0";
+    }
+
+    $requestHeaders[] = "Connection: close";
+
+    $context = stream_context_create([
+        "http" => [
+            "method" => "GET",
+            "header" => implode("\r\n", $requestHeaders) . "\r\n",
+            "timeout" => 18,
+            "ignore_errors" => true
+        ],
+        "ssl" => [
+            "verify_peer" => false,
+            "verify_peer_name" => false
+        ]
+    ]);
+
+    $response = @file_get_contents($url, false, $context);
+    if ($response === false) {
+        return null;
+    }
+
+    if (!isset($http_response_header) || !is_array($http_response_header) || count($http_response_header) === 0) {
+        return null;
+    }
+
+    $statusLine = $http_response_header[0];
+    if (!preg_match('/\s(\d{3})\s/', $statusLine, $matches)) {
+        return null;
+    }
+
+    $status = (int) $matches[1];
+    if ($status < 200 || $status >= 300) {
+        return null;
+    }
+
+    $json = json_decode($response, true);
+    return is_array($json) ? $json : null;
 }
 
 function upstox_api_get($url)
@@ -180,6 +338,96 @@ function normalize_symbol($value)
     }
     if ($symbol === "^BSESN" || $symbol === "SENSEX") {
         return "SENSEX";
+    }
+
+    return $symbol;
+}
+
+function market_timezone()
+{
+    static $timezone = null;
+
+    if ($timezone === null) {
+        $timezone = new DateTimeZone("Asia/Kolkata");
+    }
+
+    return $timezone;
+}
+
+function format_market_time($timestamp, $format = "H:i")
+{
+    $date = new DateTime("@" . (int) $timestamp);
+    $date->setTimezone(market_timezone());
+    return $date->format($format);
+}
+
+function resolve_equity_symbol($value)
+{
+    $symbol = normalize_symbol($value);
+    $companyKey = normalize_company_key($value);
+
+    $aliasMap = [
+        "ADANIPOWER" => "ADANIPOWER",
+        "BHARTIAIRTEL" => "BHARTIARTL",
+        "HDFCBANK" => "HDFCBANK",
+        "ICICIBANK" => "ICICIBANK",
+        "INFOSYS" => "INFY",
+        "INFY" => "INFY",
+        "ITC" => "ITC",
+        "RELIANCE" => "RELIANCE",
+        "SBI" => "SBIN",
+        "SBIN" => "SBIN",
+        "TATAMOTORS" => "TATAMOTORS",
+        "TCS" => "TCS",
+        "WIPRO" => "WIPRO"
+    ];
+
+    if (isset($aliasMap[$symbol])) {
+        return $aliasMap[$symbol];
+    }
+
+    if (isset($aliasMap[$companyKey])) {
+        return $aliasMap[$companyKey];
+    }
+
+    $cacheKey = "symbol_resolve_" . $companyKey;
+    $cachedSymbol = session_cache_get($cacheKey, 86400);
+    if (is_string($cachedSymbol) && $cachedSymbol !== "") {
+        return $cachedSymbol;
+    }
+
+    if ($companyKey !== "" && preg_match('/^[A-Z0-9]+$/', $symbol)) {
+        $directQuote = nse_get_equity_quote($symbol);
+        if ($directQuote && isset($directQuote["last_price"]) && (float) $directQuote["last_price"] > 0) {
+            session_cache_put($cacheKey, $symbol);
+            return $symbol;
+        }
+    }
+
+    $query = trim(str_replace(["NSE:", "BSE:"], "", (string) $value));
+    if ($query !== "") {
+        $matches = nse_search_stocks($query);
+        foreach ($matches as $match) {
+            $candidate = isset($match["trading_symbol"]) ? strtoupper(trim($match["trading_symbol"])) : "";
+            if ($candidate === "") {
+                continue;
+            }
+
+            $candidateName = isset($match["name"]) ? $match["name"] : $candidate;
+            $candidateKey = normalize_company_key($candidateName);
+            if ($candidateKey === $companyKey || $candidate === $symbol) {
+                session_cache_put($cacheKey, $candidate);
+                return $candidate;
+            }
+        }
+
+        if (count($matches) > 0 && isset($matches[0]["trading_symbol"])) {
+            $candidate = strtoupper(trim($matches[0]["trading_symbol"]));
+            if ($candidate !== "") {
+                session_cache_put($cacheKey, $candidate);
+                return $candidate;
+            }
+        }
     }
 
     return $symbol;
@@ -429,7 +677,12 @@ function nse_get_equity_quote($symbol)
 
     $main = nse_api_get("/api/quote-equity", ["symbol" => $cleanSymbol], "https://www.nseindia.com/get-quotes/equity?symbol=" . urlencode($cleanSymbol));
     if (!$main) {
-        return nse_get_equity_quote_from_snapshots($cleanSymbol);
+        $snapshotQuote = nse_get_equity_quote_from_snapshots($cleanSymbol);
+        if ($snapshotQuote) {
+            return $snapshotQuote;
+        }
+
+        return yahoo_get_equity_quote($cleanSymbol);
     }
 
     $trade = nse_api_get("/api/quote-equity", ["symbol" => $cleanSymbol, "section" => "trade_info"], "https://www.nseindia.com/get-quotes/equity?symbol=" . urlencode($cleanSymbol));
@@ -461,6 +714,181 @@ function nse_get_equity_quote($symbol)
         ],
         "volume" => $volume,
         "change_percent" => isset($main["priceInfo"]["pChange"]) ? (float) $main["priceInfo"]["pChange"] : 0
+    ];
+}
+
+function yahoo_get_equity_quote($symbol)
+{
+    $cleanSymbol = normalize_symbol($symbol);
+    if ($cleanSymbol === "") {
+        return null;
+    }
+
+    $url = "https://query1.finance.yahoo.com/v8/finance/chart/" . rawurlencode($cleanSymbol . ".NS") . "?range=1d&interval=1m";
+    $json = api_get_json($url);
+    if (
+        !$json ||
+        !isset($json["chart"]["result"][0]["meta"]) ||
+        !is_array($json["chart"]["result"][0]["meta"])
+    ) {
+        return null;
+    }
+
+    $meta = $json["chart"]["result"][0]["meta"];
+    $lastPrice = isset($meta["regularMarketPrice"]) ? (float) $meta["regularMarketPrice"] : 0;
+    if ($lastPrice <= 0) {
+        return null;
+    }
+
+    $close = isset($meta["previousClose"]) ? (float) $meta["previousClose"] : 0;
+    $changePercent = 0;
+    if ($close > 0) {
+        $changePercent = (($lastPrice - $close) / $close) * 100;
+    }
+
+    return [
+        "symbol" => $cleanSymbol,
+        "name" => isset($meta["symbol"]) ? strtoupper(str_replace(".NS", "", $meta["symbol"])) : $cleanSymbol,
+        "exchange" => "NSE",
+        "last_price" => $lastPrice,
+        "ohlc" => [
+            "open" => isset($meta["regularMarketOpen"]) ? (float) $meta["regularMarketOpen"] : 0,
+            "high" => isset($meta["regularMarketDayHigh"]) ? (float) $meta["regularMarketDayHigh"] : 0,
+            "low" => isset($meta["regularMarketDayLow"]) ? (float) $meta["regularMarketDayLow"] : 0,
+            "close" => $close
+        ],
+        "depth" => [
+            "buy" => [["price" => 0]],
+            "sell" => [["price" => 0]]
+        ],
+        "volume" => isset($meta["regularMarketVolume"]) ? (float) $meta["regularMarketVolume"] : 0,
+        "change_percent" => $changePercent
+    ];
+}
+
+function yahoo_get_intraday_series($symbol, $range = "1d", $interval = "5m")
+{
+    $cleanSymbol = normalize_symbol($symbol);
+    if ($cleanSymbol === "") {
+        return null;
+    }
+
+    $url = "https://query1.finance.yahoo.com/v8/finance/chart/" . rawurlencode($cleanSymbol . ".NS")
+        . "?range=" . rawurlencode($range)
+        . "&interval=" . rawurlencode($interval)
+        . "&includePrePost=false&events=div%2Csplits";
+
+    $json = api_get_json($url);
+    if (
+        !$json ||
+        !isset($json["chart"]["result"][0]) ||
+        !is_array($json["chart"]["result"][0])
+    ) {
+        return null;
+    }
+
+    $result = $json["chart"]["result"][0];
+    $meta = isset($result["meta"]) && is_array($result["meta"]) ? $result["meta"] : [];
+    $timestamps = isset($result["timestamp"]) && is_array($result["timestamp"]) ? $result["timestamp"] : [];
+    $quoteBlock = isset($result["indicators"]["quote"][0]) && is_array($result["indicators"]["quote"][0])
+        ? $result["indicators"]["quote"][0]
+        : [];
+
+    if (count($timestamps) === 0 || count($quoteBlock) === 0) {
+        return null;
+    }
+
+    $opens = isset($quoteBlock["open"]) && is_array($quoteBlock["open"]) ? $quoteBlock["open"] : [];
+    $highs = isset($quoteBlock["high"]) && is_array($quoteBlock["high"]) ? $quoteBlock["high"] : [];
+    $lows = isset($quoteBlock["low"]) && is_array($quoteBlock["low"]) ? $quoteBlock["low"] : [];
+    $closes = isset($quoteBlock["close"]) && is_array($quoteBlock["close"]) ? $quoteBlock["close"] : [];
+    $volumes = isset($quoteBlock["volume"]) && is_array($quoteBlock["volume"]) ? $quoteBlock["volume"] : [];
+
+    $labels = [];
+    $prices = [];
+    $seriesOpen = [];
+    $seriesHigh = [];
+    $seriesLow = [];
+    $seriesVolume = [];
+    $seriesTimestamps = [];
+    $lastValidClose = 0;
+
+    foreach ($timestamps as $index => $timestamp) {
+        $pointTime = (int) $timestamp;
+        if ($pointTime <= 0) {
+            continue;
+        }
+
+        $open = isset($opens[$index]) ? (float) $opens[$index] : 0;
+        $high = isset($highs[$index]) ? (float) $highs[$index] : 0;
+        $low = isset($lows[$index]) ? (float) $lows[$index] : 0;
+        $close = isset($closes[$index]) ? (float) $closes[$index] : 0;
+        $volume = isset($volumes[$index]) ? (float) $volumes[$index] : 0;
+
+        if ($close <= 0) {
+            if ($open > 0 && $high > 0 && $low > 0) {
+                $close = ($open + $high + $low) / 3;
+            } elseif ($lastValidClose > 0) {
+                $close = $lastValidClose;
+            } else {
+                continue;
+            }
+        }
+
+        if ($open <= 0) {
+            $open = $close;
+        }
+        if ($high <= 0) {
+            $high = max($open, $close);
+        }
+        if ($low <= 0) {
+            $low = min($open, $close);
+        }
+
+        $labels[] = format_market_time($pointTime);
+        $prices[] = round($close, 2);
+        $seriesOpen[] = round($open, 2);
+        $seriesHigh[] = round($high, 2);
+        $seriesLow[] = round($low, 2);
+        $seriesVolume[] = (int) round($volume);
+        $seriesTimestamps[] = $pointTime;
+        $lastValidClose = $close;
+    }
+
+    if (count($prices) < 2) {
+        return null;
+    }
+
+    $previousClose = isset($meta["previousClose"]) ? (float) $meta["previousClose"] : 0;
+    $sessionHigh = count($seriesHigh) > 0 ? max($seriesHigh) : max($prices);
+    $sessionLow = count($seriesLow) > 0 ? min($seriesLow) : min($prices);
+    $firstPrice = (float) $prices[0];
+    $lastPrice = (float) $prices[count($prices) - 1];
+    $sessionChange = $lastPrice - $firstPrice;
+    $sessionChangePercent = $firstPrice > 0 ? ($sessionChange / $firstPrice) * 100 : 0;
+    $lastTimestamp = $seriesTimestamps[count($seriesTimestamps) - 1];
+
+    return [
+        "labels" => $labels,
+        "prices" => $prices,
+        "opens" => $seriesOpen,
+        "highs" => $seriesHigh,
+        "lows" => $seriesLow,
+        "volumes" => $seriesVolume,
+        "timestamps" => $seriesTimestamps,
+        "meta" => [
+            "source" => "yahoo_intraday",
+            "range" => $range,
+            "interval" => $interval,
+            "previousClose" => $previousClose,
+            "sessionHigh" => $sessionHigh,
+            "sessionLow" => $sessionLow,
+            "sessionOpen" => $firstPrice,
+            "sessionChange" => $sessionChange,
+            "sessionChangePercent" => $sessionChangePercent,
+            "lastUpdated" => $lastTimestamp,
+            "lastUpdatedLabel" => format_market_time($lastTimestamp)
+        ]
     ];
 }
 
@@ -571,7 +999,7 @@ function get_live_quote($instrumentKey, $forceRefresh = false)
         }
     }
 
-    $symbol = normalize_symbol($instrumentKey);
+    $symbol = resolve_equity_symbol($instrumentKey);
     $indexQuote = nse_get_index_quote($symbol);
     if ($indexQuote) {
         $requestCache[$cacheKey] = $indexQuote;
@@ -674,7 +1102,7 @@ function get_price_history_series($symbol, $limit = 120, $liveQuote = null)
     $prices = [];
 
     while ($result && ($row = mysqli_fetch_assoc($result))) {
-        $labels[] = date("H:i", strtotime($row["created_at"]));
+        $labels[] = format_market_time(strtotime($row["created_at"]));
         $prices[] = (float) $row["price"];
     }
 
@@ -690,8 +1118,62 @@ function get_price_history_series($symbol, $limit = 120, $liveQuote = null)
 
     return [
         "labels" => $labels,
-        "prices" => $prices
+        "prices" => $prices,
+        "meta" => [
+            "source" => "local_history",
+            "range" => "session",
+            "interval" => "local",
+            "previousClose" => $liveQuote && isset($liveQuote["ohlc"]["close"]) ? (float) $liveQuote["ohlc"]["close"] : 0,
+            "sessionHigh" => count($prices) > 0 ? max($prices) : 0,
+            "sessionLow" => count($prices) > 0 ? min($prices) : 0,
+            "sessionOpen" => count($prices) > 0 ? (float) $prices[0] : 0,
+            "sessionChange" => count($prices) > 1 ? (float) $prices[count($prices) - 1] - (float) $prices[0] : 0,
+            "sessionChangePercent" => count($prices) > 1 && (float) $prices[0] > 0
+                ? (((float) $prices[count($prices) - 1] - (float) $prices[0]) / (float) $prices[0]) * 100
+                : 0,
+            "lastUpdated" => time(),
+            "lastUpdatedLabel" => format_market_time(time())
+        ]
     ];
+}
+
+function get_intraday_chart_series($symbol, $liveQuote = null)
+{
+    $normalized = normalize_symbol($symbol);
+    $yahooSeries = yahoo_get_intraday_series($normalized, "1d", "5m");
+
+    if ($yahooSeries && isset($yahooSeries["prices"]) && count($yahooSeries["prices"]) >= 2) {
+        $liveLast = $liveQuote && isset($liveQuote["last_price"]) ? (float) $liveQuote["last_price"] : 0;
+        if ($liveLast > 0) {
+            $lastIndex = count($yahooSeries["prices"]) - 1;
+            $chartLast = (float) $yahooSeries["prices"][$lastIndex];
+            if (abs($liveLast - $chartLast) >= 0.01) {
+                $yahooSeries["prices"][$lastIndex] = round($liveLast, 2);
+                if (isset($yahooSeries["highs"][$lastIndex])) {
+                    $yahooSeries["highs"][$lastIndex] = round(max((float) $yahooSeries["highs"][$lastIndex], $liveLast), 2);
+                }
+                if (isset($yahooSeries["lows"][$lastIndex])) {
+                    $yahooSeries["lows"][$lastIndex] = round(min((float) $yahooSeries["lows"][$lastIndex], $liveLast), 2);
+                }
+            }
+
+            if (isset($yahooSeries["meta"]) && is_array($yahooSeries["meta"])) {
+                $yahooSeries["meta"]["sessionHigh"] = max((float) $yahooSeries["meta"]["sessionHigh"], $liveLast);
+                $yahooSeries["meta"]["sessionLow"] = min((float) $yahooSeries["meta"]["sessionLow"], $liveLast);
+                $firstPrice = isset($yahooSeries["meta"]["sessionOpen"]) ? (float) $yahooSeries["meta"]["sessionOpen"] : (float) $yahooSeries["prices"][0];
+                $yahooSeries["meta"]["sessionChange"] = $liveLast - $firstPrice;
+                $yahooSeries["meta"]["sessionChangePercent"] = $firstPrice > 0
+                    ? (($liveLast - $firstPrice) / $firstPrice) * 100
+                    : 0;
+                $yahooSeries["meta"]["lastUpdated"] = time();
+                $yahooSeries["meta"]["lastUpdatedLabel"] = format_market_time(time());
+            }
+        }
+
+        return $yahooSeries;
+    }
+
+    return get_price_history_series($normalized, 120, $liveQuote);
 }
 
 function normalize_company_key($value)
@@ -790,7 +1272,7 @@ function resolve_holding_display_price($instrumentKey, $displayName, $buyPrice)
 function resolve_holding_live_price($instrumentKey, $displayName, $buyPrice, $forceRefresh = false)
 {
     $buyPrice = (float) $buyPrice;
-    $quoteKey = $instrumentKey ? $instrumentKey : $displayName;
+    $quoteKey = $instrumentKey ? $instrumentKey : resolve_equity_symbol($displayName);
     $livePrice = $buyPrice;
 
     if ($quoteKey) {
@@ -800,7 +1282,7 @@ function resolve_holding_live_price($instrumentKey, $displayName, $buyPrice, $fo
         }
     }
 
-    $fallbackSymbol = normalize_symbol($displayName);
+    $fallbackSymbol = resolve_equity_symbol($displayName);
     if (($livePrice <= 0 || abs($livePrice - $buyPrice) < 0.0001) && $fallbackSymbol !== "") {
         $fallbackQuote = get_live_quote($fallbackSymbol, $forceRefresh);
         if ($fallbackQuote && isset($fallbackQuote["last_price"]) && (float) $fallbackQuote["last_price"] > 0) {
@@ -831,7 +1313,7 @@ function get_live_quote_fast($instrumentKey)
         return $_SESSION["quote_cache"][$cacheKey]["quote"];
     }
 
-    $normalized = normalize_symbol($instrumentKey);
+    $normalized = resolve_equity_symbol($instrumentKey);
     if ($normalized === "") {
         return null;
     }
@@ -1089,5 +1571,23 @@ function initialize_database($conn)
     $nameColumn = mysqli_query($conn, "SHOW COLUMNS FROM holdings LIKE 'display_name'");
     if (mysqli_num_rows($nameColumn) == 0) {
         mysqli_query($conn, "ALTER TABLE holdings ADD COLUMN display_name VARCHAR(120) NULL");
+    }
+
+    $legacyHoldings = mysqli_query($conn, "SELECT id, stock_name, instrument_key, display_name FROM holdings WHERE instrument_key IS NULL OR instrument_key = '' OR display_name IS NULL OR display_name = ''");
+    while ($legacyHoldings && ($row = mysqli_fetch_assoc($legacyHoldings))) {
+        $sourceName = $row["display_name"] ? $row["display_name"] : $row["stock_name"];
+        $resolvedSymbol = resolve_equity_symbol($sourceName);
+        if ($resolvedSymbol === "") {
+            continue;
+        }
+
+        $safeSymbol = mysqli_real_escape_string($conn, $resolvedSymbol);
+        $safeDisplayName = mysqli_real_escape_string($conn, "NSE:" . $resolvedSymbol);
+        $holdingId = (int) $row["id"];
+
+        mysqli_query(
+            $conn,
+            "UPDATE holdings SET instrument_key = '$safeSymbol', display_name = '$safeDisplayName' WHERE id = $holdingId"
+        );
     }
 }
