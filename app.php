@@ -1,14 +1,118 @@
 <?php
 session_start();
 
-$conn = mysqli_connect("localhost", "root", "", "tradesim_app");
 $UPSTOX_TOKEN = getenv("UPSTOX_ACCESS_TOKEN");
+$conn = connect_database($databaseErrors);
 
 if (!$conn) {
-    die("Database connection failed");
+    http_response_code(500);
+    echo render_database_boot_error($databaseErrors);
+    exit;
 }
 
 initialize_database($conn);
+
+function env_value($key, $default = "")
+{
+    $value = getenv($key);
+    if ($value === false || $value === null || $value === "") {
+        return $default;
+    }
+
+    return $value;
+}
+
+function connect_database(&$errors = [])
+{
+    mysqli_report(MYSQLI_REPORT_OFF);
+
+    $database = env_value("TRADESIM_DB_NAME", "tradesim_app");
+    $username = env_value("TRADESIM_DB_USER", "root");
+    $password = env_value("TRADESIM_DB_PASSWORD", "");
+    $hostCandidates = array_unique([
+        env_value("TRADESIM_DB_HOST", "localhost"),
+        "127.0.0.1",
+        "localhost"
+    ]);
+    $portCandidates = array_unique(array_map("intval", array_filter([
+        env_value("TRADESIM_DB_PORT", ""),
+        3306,
+        3307
+    ])));
+    $socketCandidates = array_unique(array_filter([
+        env_value("TRADESIM_DB_SOCKET", ""),
+        "C:/xampp/mysql/mysql.sock"
+    ]));
+
+    foreach ($hostCandidates as $host) {
+        foreach ($portCandidates as $port) {
+            $conn = @mysqli_connect($host, $username, $password, $database, $port);
+            if ($conn instanceof mysqli) {
+                mysqli_set_charset($conn, "utf8mb4");
+                return $conn;
+            }
+
+            $errors[] = $host . ":" . $port . " - " . mysqli_connect_error();
+        }
+    }
+
+    foreach ($socketCandidates as $socket) {
+        $conn = @mysqli_connect("localhost", $username, $password, $database, null, $socket);
+        if ($conn instanceof mysqli) {
+            mysqli_set_charset($conn, "utf8mb4");
+            return $conn;
+        }
+
+        $errors[] = "socket " . $socket . " - " . mysqli_connect_error();
+    }
+
+    return null;
+}
+
+function render_database_boot_error($errors)
+{
+    $safeErrors = [];
+    foreach ((array) $errors as $error) {
+        $safeErrors[] = htmlspecialchars((string) $error, ENT_QUOTES, "UTF-8");
+    }
+
+    $details = count($safeErrors) > 0
+        ? "<ul><li>" . implode("</li><li>", $safeErrors) . "</li></ul>"
+        : "<p>No connection attempts were recorded.</p>";
+
+    return <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TradeSim Database Error</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f7f3ec; color: #201a15; padding: 32px; }
+        .panel { max-width: 760px; margin: 0 auto; background: #fffdfa; border: 1px solid #e3d9cb; border-radius: 18px; padding: 24px 28px; box-shadow: 0 16px 36px rgba(54, 42, 31, 0.08); }
+        h1 { margin: 0 0 12px; font-size: 28px; }
+        p, li { line-height: 1.6; }
+        code { background: #f1ebe2; padding: 2px 6px; border-radius: 6px; }
+        ul { padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <div class="panel">
+        <h1>TradeSim could not connect to MySQL</h1>
+        <p>Checked common local setups for <code>3306</code>, <code>3307</code>, and the XAMPP socket.</p>
+        <p>Fastest fix:</p>
+        <ul>
+            <li>Start MySQL / MariaDB</li>
+            <li>Import <code>tradesim_app_export.sql</code> if the database is missing</li>
+            <li>Optionally set <code>TRADESIM_DB_HOST</code>, <code>TRADESIM_DB_PORT</code>, <code>TRADESIM_DB_USER</code>, <code>TRADESIM_DB_PASSWORD</code>, or <code>TRADESIM_DB_SOCKET</code></li>
+        </ul>
+        <p>Connection attempts:</p>
+        {$details}
+    </div>
+</body>
+</html>
+HTML;
+}
 
 function redirect_to($page)
 {
